@@ -1,5 +1,42 @@
 #!/usr/bin/env python3
 
+from cgi import parse_qs
+
+def application(env, start_response):
+  method = env['REQUEST_METHOD']
+
+  if method == 'POST':
+    try:
+      request_body_size = int(env.get('CONTENT_LENGTH', 0))
+    except (ValueError):
+      request_body_size = 0
+
+    request_body = env['wsgi.input'].read(request_body_size)
+    d = parse_qs(request_body)
+    print(d)
+
+    yturl = d.get(b'yturl', None)
+    if not yturl:
+      print('yturl missing')
+      start_response('400 BAD REQUEST', [('Content-Type','text/plain')])
+
+
+    try:
+      sl = download(yturl[0].decode('utf-8'))
+      of = doomify(sl)
+      doom = open(of, 'rb')
+      resp = doom.read()
+      start_response('200 OK', [('Content-Type','audio/x-wav')])
+      return [resp]
+    except Exception as e:
+      print(e)
+      start_response('500 INTERNAL SERVER ERROR', [('Content-Type','text/plain')])
+    
+  else:
+    start_response('400 BAD REQUEST', [('Content-Type','text/plain')])
+    
+  return [b"kek"]
+
 import wave
 import numpy as np
 import youtube_dl
@@ -28,22 +65,16 @@ def download(link):
     }
     with youtube_dl.YoutubeDL(opts) as ytdl:
       info = ytdl.extract_info(link, download=True)
-      return ytdl.prepare_filename(info)[:-5] + '.wav'
+      filename = ytdl.prepare_filename(info)
+      return filename[:filename.find('.', -6)] + '.wav'
 
-
-def main():
-  if len(sys.argv) != 2:
-    print('Expected a youtube url argument')
-    exit()
-
+def doomify(sf):
   noise = 0.2
   wet = 1 - noise
   speed = 0.8
 
   nf = 'vinyl.wav'
-  of = 'testout.wav'
-  sl = sys.argv[1]
-  sf = download(sl)
+  of = 'doomer_' + sf
   with wave.open(sf, 'rb') as wav, wave.open(nf, 'rb') as vinyl:
     with wave.open(of, 'wb') as out:
       out.setparams(wav.getparams())
@@ -55,32 +86,36 @@ def main():
 
       vinbuf = vinyl.readframes(out.getframerate() * 3 // 2)
       out.writeframes(vinbuf)
-      vinbuf = None
+      wavfs = wav.getsampwidth() * wav.getnchannels()
 
-      INT16_MIN = np.iinfo(np.int16).min
-      INT16_MAX = np.iinfo(np.int16).max
-      def mix(a, b):
-        return (a + b) - ((a * b)/INT16_MIN) if a < 0 and b < 0  else ( (a + b) - ((a * b)/INT16_MAX) if a > 0 and b > 0 else a + b)
-      mv = np.vectorize(mix)
-        
       while True:
         buf = wav.readframes(1024)
         if len(buf) <= 0:
           break
-        vinbuf = vinyl.readframes(len(buf) // 4)
+        vinbuf = vinyl.readframes(len(buf) // wavfs)
         if len(vinbuf) < len(buf):
           vinyl.rewind()
-          vinbuf = vinyl.readframes(len(buf) // 4)
+          vinbuf = vinyl.readframes(len(buf) // wavfs)
 
         a = np.frombuffer(buf, dtype='i2') * wet
         b = np.frombuffer(vinbuf, dtype='i2') * noise
 
-        
-        #mod = mv(a, b)
         mod = a + b
 
         out.writeframes(mod.astype('i2').tobytes())
-      os.system('open testout.wav')
+
+  return of
+  
+
+def main():
+  if len(sys.argv) != 2:
+    print('Expected a youtube url argument: e.g. ./doomify "http://..."')
+    exit()
+
+  sl = sys.argv[1]
+  sf = download(sl)
+  of = doomify(sf)
+  os.system('open \"%s\"' % of)
         
 if __name__ == '__main__':
   main()
