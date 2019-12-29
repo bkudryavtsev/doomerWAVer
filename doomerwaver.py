@@ -28,7 +28,7 @@ def application(env, start_response):
       of = cached_doom(yturl)
       doom = open(of, 'rb')
       resp = doom.read()
-      start_response('200 OK', [('Content-Type','audio/x-wav'), ('Content-Disposition','attachment; filename=' + of), ('Content-Length', str(len(resp)))])
+      start_response('200 OK', [('Content-Type','audio/x-wav'), ('Content-Disposition','attachment; filename=' + unidecode(of)), ('Content-Length', str(len(resp)))])
       return [resp]
     except Exception as e:
       print(e)
@@ -52,6 +52,7 @@ import numpy as np
 import youtube_dl
 import sys
 import os
+from unidecode import unidecode
 
 cache = {}
 def cached_doom(yturl):
@@ -99,7 +100,7 @@ def moving_average(a, n=3) :
   return ret[n - 1:] / n
 
 def doomify(sf):
-  noise = 0.15
+  noise = 0.1
   wet = 1 - noise
   speed = 0.74
 
