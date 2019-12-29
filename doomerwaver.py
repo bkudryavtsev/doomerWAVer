@@ -15,47 +15,56 @@ def application(env, start_response):
 
   method = env['REQUEST_METHOD']
 
-  if method == 'POST':
-    try:
+  try:
+    if method == 'POST':
+      # Process file
       request_body_size = int(env.get('CONTENT_LENGTH', 0))
-    except (ValueError):
-      request_body_size = 0
+      request_body = env['wsgi.input'].read(request_body_size)
+      d = parse_qs(request_body)
 
-    request_body = env['wsgi.input'].read(request_body_size)
-    d = parse_qs(request_body)
-    print(d)
+      yturl = d.get(b'yturl', None)
+      if not yturl:
+        start_response('400 BAD REQUEST', [('Content-Type','text/plain')])
+        return [b'POST request must have a yturl paramter containing the Youtube url']
+      else:
+        yturl = yturl[0].decode('utf-8')
 
-    yturl = d.get(b'yturl', None)
-    if not yturl:
-      print('yturl missing')
-      start_response('400 BAD REQUEST', [('Content-Type','text/plain')])
-      return[b'']
-    else:
-      yturl = yturl[0].decode('utf-8')
-
-
-    try:
+      # Request good. Attempt to process video
       of = cached_doom(yturl)
       doom = open(of, 'rb')
       resp = doom.read()
-      start_response('200 OK', [('Content-Type','audio/x-wav'), ('Content-Disposition','attachment; filename=' + unidecode(of)), ('Content-Length', str(len(resp))), ('Access-Control-Allow-Origin', '*')])
+      start_response('200 OK', [
+        ('Content-Type','audio/x-wav'), 
+        ('Content-Disposition','attachment; filename=' + unidecode(of)), 
+        ('Content-Length', str(len(resp))), 
+        ('Access-Control-Allow-Origin', '*')
+        ]
+      )
       return [resp]
-    except Exception as e:
-      print(e)
-      start_response('500 INTERNAL SERVER ERROR', [('Content-Type','text/plain')])
-      return [str(e).encode('utf-8')]
-    
-  elif method == 'GET':
-      with open('index.html', 'rb') as i:
-        data = i.read()
-        start_response('200 OK', [('Content-Type','text/html')])
-        return(data)
-        
+      
+    elif method == 'GET':
+      # Fetching the frontend
+      url = env.get('PATH_INFO', '/')
 
-  else:
-    start_response('400 BAD REQUEST', [('Content-Type','text/plain')])
+      if url in ['index.html', '/', '']:
+        with open('index.html', 'rb') as i:
+          data = i.read()
+          start_response('200 OK', [('Content-Type','text/html')])
+          return [data]
+      else:
+        start_response('404 Not Found', [('Content-Type','text/html')])
+        return [b'404. That file does not exist here']
+
+    else:
+      start_response('405 Method Not Allowed', [('Content-Type','text/plain')])
+      return [b'405. Request type not supported']
     
-  return [b"kek"]
+  except Exception as e:
+    start_response('500 Internal Server Error', [('Content-Type','text/plain')])
+    print(e)
+    return [str(e).encode('utf-8')]
+
+  return [b"Something went incredibly wrong"]
 
 cache = {}
 def cached_doom(yturl: str) -> str:
@@ -179,11 +188,8 @@ def doomify(sf: str) -> str:
 
 def main():
   """A quick way to test the program without bringing up any servers"""
-  if len(sys.argv) != 2:
-    print('Expected a youtube url argument: e.g. ./doomify "http://..."')
-    exit(1)
-  else:
-    os.system('open \"%s\"' % cached_doom(sys.argv[1]))
+  if len(sys.argv) != 2: sys.exit('Expected a youtube url argument: e.g. ./doomify "http://..."')
+  os.system('open \"%s\"' % cached_doom(sys.argv[1]))
         
 if __name__ == '__main__':
   main()
