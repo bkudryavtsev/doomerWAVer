@@ -111,6 +111,7 @@ def download(link: str):
   opts = {
     'format': 'bestaudio/best',
     'forcefilename': True,
+    'quiet': True,
     'noplaylist': True,
     'max_downloads': 1,
     'max_filesize': maxfilesize,
@@ -124,8 +125,8 @@ def download(link: str):
     info = ytdl.extract_info(link, download=False)
     if info['filesize'] > maxfilesize:
       raise Exception('Sorry brother, I can\'t handle a file this size') 
+    ytdl.download([link])
     filename = ytdl.prepare_filename(info)
-    info = ytdl.extract_info(link, download=True)
     return filename[:filename.find('.', -6)] + '.wav'
 
 def moving_average(a, n=3):
@@ -133,10 +134,11 @@ def moving_average(a, n=3):
   ret[n:] = ret[n:] - ret[:-n]
   return ret[n - 1:] / n
 
-def doomify(sf: str) -> str:
+def doomify(sf: str, verbose=False) -> str:
   """Takes a wave file and returns a doomified mp3
   Args:
     sf (str): Source file name
+    verbose (bool, optional): print file info
   Returns:
     str: Output file name (mp3)
   """
@@ -159,9 +161,10 @@ def doomify(sf: str) -> str:
       out.setparams(wav.getparams())
       out.setframerate(wav.getframerate() * speed)
 
-      printinfo('Input Audio', wav)
-      printinfo('Vinyl Sample', vinyl)
-      printinfo('Output Audio', out)
+      if verbose:
+        printinfo('Input Audio', wav)
+        printinfo('Vinyl Sample', vinyl)
+        printinfo('Output Audio', out)
 
       vinbuf = np.frombuffer(vinyl.readframes(out.getframerate() * 3 // 2), dtype='i2') * noise
       out.writeframes(vinbuf.astype('i2').tobytes())
@@ -182,6 +185,7 @@ def doomify(sf: str) -> str:
         out.writeframes(mod.astype('i2').tobytes())
 
     pydub.AudioSegment.from_wav(temp).export(of, format='mp3')
+    os.unlink(temp)
   print('Generated', of)
   return of
   
