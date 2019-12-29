@@ -45,6 +45,7 @@ def application(env, start_response):
   return [b"kek"]
 
 import wave
+import pydub
 import numpy as np
 import youtube_dl
 import sys
@@ -78,7 +79,7 @@ def download(link):
 def doomify(sf):
   noise = 0.2
   wet = 1 - noise
-  speed = 0.8
+  speed = 0.74
 
   of = 'doomer_' + sf
   with wave.open(sf, 'rb') as wav:
@@ -118,8 +119,9 @@ def doomify(sf):
           mod = a + b
   
           out.writeframes(mod.astype('i2').tobytes())
+        pydub.AudioSegment.from_wav(of).export(of + '.mp3', format='mp3')
 
-  return of
+  return of + '.mp3'
   
 
 def main():
