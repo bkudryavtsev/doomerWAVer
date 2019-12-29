@@ -28,11 +28,12 @@ def application(env, start_response):
       of = cached_doom(yturl)
       doom = open(of, 'rb')
       resp = doom.read()
-      start_response('200 OK', [('Content-Type','audio/x-wav'), ('Content-Disposition','attachment; filename=' + unidecode(of)), ('Content-Length', str(len(resp)))])
+      start_response('200 OK', [('Content-Type','audio/x-wav'), ('Content-Disposition','attachment; filename=' + unidecode(of)), ('Content-Length', str(len(resp))), ('Access-Control-Allow-Origin', '*')])
       return [resp]
     except Exception as e:
       print(e)
       start_response('500 INTERNAL SERVER ERROR', [('Content-Type','text/plain')])
+      return [str(e).encode('utf-8')]
     
   elif method == 'GET':
       with open('index.html', 'rb') as i:
@@ -79,10 +80,13 @@ def printinfo(name, wav):
 
 def download(link):
     print("Downloading", link)
+    maxfilesize = 20000000
     opts = {
         'format': 'bestaudio/best',
         'forcefilename': True,
         'noplaylist': True,
+        'max_downloads': 1,
+        'max_filesize': maxfilesize,
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'wav',
@@ -90,8 +94,12 @@ def download(link):
         }]
     }
     with youtube_dl.YoutubeDL(opts) as ytdl:
-      info = ytdl.extract_info(link, download=True)
+      info = ytdl.extract_info(link, download=False)
+      if info['filesize'] > maxfilesize:
+        raise Exception('Sorry brother, I can\'t handle a file this size') 
       filename = ytdl.prepare_filename(info)
+      info = ytdl.extract_info(link, download=True)
+      print('here')
       return filename[:filename.find('.', -6)] + '.wav'
 
 def moving_average(a, n=3) :
@@ -126,21 +134,21 @@ def doomify(sf):
         vinbuf = np.frombuffer(vinyl.readframes(out.getframerate() * 3 // 2), dtype='i2') * noise
         out.writeframes(vinbuf.astype('i2').tobytes())
 
-        wavcns = wav.getnchannels()
+        wavcns = wav.getnchannels() * 2
   
         while True:
           buf = wav.readframes(1024)
           if len(buf) <= 0:
             break
-          a = moving_average(np.frombuffer(buf, dtype='i2') * wet, n=9)
-          vinbuf = vinyl.readframes(len(a) // wavcns)
-          if len(vinbuf) < len(a) * 2:
+          vinbuf = vinyl.readframes(len(buf) // wavcns)
+          if len(vinbuf) < len(buf):
             vinyl.rewind()
-            vinbuf = vinyl.readframes(len(a) // wavcns)
+            vinbuf = vinyl.readframes(len(buf) // wavcns)
   
+          a = np.frombuffer(buf, dtype='i2') * wet
           b = np.frombuffer(vinbuf, dtype='i2') * noise
   
-          mod = a + b
+          mod = moving_average(a + b, n=7)
   
           out.writeframes(mod.astype('i2').tobytes())
         pydub.AudioSegment.from_wav(of).export(of + '.mp3', format='mp3')
