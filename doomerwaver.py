@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
 
 from cgi import parse_qs
+import wave
+import pydub
+import numpy as np
+import youtube_dl
+import sys
+import os
+from unidecode import unidecode
+
 
 def application(env, start_response):
+  """Main wsgi entry point"""
+
   method = env['REQUEST_METHOD']
 
   if method == 'POST':
@@ -47,16 +57,14 @@ def application(env, start_response):
     
   return [b"kek"]
 
-import wave
-import pydub
-import numpy as np
-import youtube_dl
-import sys
-import os
-from unidecode import unidecode
-
 cache = {}
-def cached_doom(yturl):
+def cached_doom(yturl: str) -> str:
+  """Check if video has been processed, if yes, return, else process
+  Args:
+    yturl (str): url of the youtube video
+  Returns:
+    str: the filename of the processed audio
+  """
   vid = yturl[yturl.find('=') + 1:]
   print(vid)
   cached = cache.get(vid, None)
@@ -70,49 +78,65 @@ def cached_doom(yturl):
     return of
   
 
-def printinfo(name, wav):
-  print(name)
-  print('Compression:', wav.getcompname())
-  print('Framerate:', wav.getframerate())
-  print('# Frames:', wav.getnframes())
-  print('# Channels:', wav.getnchannels())
-  print('Sample Width:', wav.getsampwidth())
+def printinfo(label: str, wav: wave.Wave_read, outfile=sys.stdout):
+  """Print info about a wav file for logging purposes
+  Args:
+    label (str): The human-readable name of the file being shown
+    wav (Wave_read): The open wave object
+    outfile (file, optional): The output stream for the info. Defaults to stdout
+  """
+  print(label, file=outfile)
+  print('Compression:', wav.getcompname(), file=outfile)
+  print('Framerate:', wav.getframerate(), file=outfile)
+  print('# Frames:', wav.getnframes(), file=outfile)
+  print('# Channels:', wav.getnchannels(), file=outfile)
+  print('Sample Width:', wav.getsampwidth(), file=outfile)
 
-def download(link):
-    print("Downloading", link)
-    maxfilesize = 20000000
-    opts = {
-        'format': 'bestaudio/best',
-        'forcefilename': True,
-        'noplaylist': True,
-        'max_downloads': 1,
-        'max_filesize': maxfilesize,
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'wav',
-            'preferredquality': '192',
-        }]
-    }
-    with youtube_dl.YoutubeDL(opts) as ytdl:
-      info = ytdl.extract_info(link, download=False)
-      if info['filesize'] > maxfilesize:
-        raise Exception('Sorry brother, I can\'t handle a file this size') 
-      filename = ytdl.prepare_filename(info)
-      info = ytdl.extract_info(link, download=True)
-      print('here')
-      return filename[:filename.find('.', -6)] + '.wav'
+def download(link: str):
+  """Download the audio from the youtube url and convert to mp3
+  Args:
+    link (str): The url of the youtube video
+  """
+  print("Downloading", link)
+  maxfilesize = 20000000 # 20MB
+  opts = {
+    'format': 'bestaudio/best',
+    'forcefilename': True,
+    'noplaylist': True,
+    'max_downloads': 1,
+    'max_filesize': maxfilesize,
+    'postprocessors': [{
+      'key': 'FFmpegExtractAudio',
+      'preferredcodec': 'wav',
+      'preferredquality': '192',
+    }]
+  }
+  with youtube_dl.YoutubeDL(opts) as ytdl:
+    info = ytdl.extract_info(link, download=False)
+    if info['filesize'] > maxfilesize:
+      raise Exception('Sorry brother, I can\'t handle a file this size') 
+    filename = ytdl.prepare_filename(info)
+    info = ytdl.extract_info(link, download=True)
+    return filename[:filename.find('.', -6)] + '.wav'
 
-def moving_average(a, n=3) :
+def moving_average(a, n=3):
   ret = np.cumsum(a, dtype=float)
   ret[n:] = ret[n:] - ret[:-n]
   return ret[n - 1:] / n
 
-def doomify(sf):
+def doomify(sf: str) -> str:
+  """Takes a wave file and returns a doomified mp3
+  Args:
+    sf (str): Source file name
+  Returns:
+    str: Output file name (mp3)
+  """
   noise = 0.1
   wet = 1 - noise
   speed = 0.74
 
-  of = 'doomer_' + sf
+  temp = 'doomer_' + sf
+  of = 'doomer_%s.mp3' % sf[:-4] 
   with wave.open(sf, 'rb') as wav:
     inchannels = wav.getnchannels()
     if inchannels == 2:
@@ -122,48 +146,44 @@ def doomify(sf):
     else:
       exit(1)
 
-    with wave.open(nf, 'rb') as vinyl:
-      with wave.open(of, 'wb') as out:
-        out.setparams(wav.getparams())
-        out.setframerate(wav.getframerate() * speed)
-  
-        printinfo('Input Audio', wav)
-        printinfo('Vinyl Sample', vinyl)
-        printinfo('Output Audio', out)
-  
-        vinbuf = np.frombuffer(vinyl.readframes(out.getframerate() * 3 // 2), dtype='i2') * noise
-        out.writeframes(vinbuf.astype('i2').tobytes())
+    with wave.open(nf, 'rb') as vinyl, wave.open(temp, 'wb') as out:
+      out.setparams(wav.getparams())
+      out.setframerate(wav.getframerate() * speed)
 
-        wavcns = wav.getnchannels() * 2
-  
-        while True:
-          buf = wav.readframes(1024)
-          if len(buf) <= 0:
-            break
+      printinfo('Input Audio', wav)
+      printinfo('Vinyl Sample', vinyl)
+      printinfo('Output Audio', out)
+
+      vinbuf = np.frombuffer(vinyl.readframes(out.getframerate() * 3 // 2), dtype='i2') * noise
+      out.writeframes(vinbuf.astype('i2').tobytes())
+
+      wavcns = wav.getnchannels() * 2
+
+      while True:
+        buf = wav.readframes(1024)
+        if len(buf) <= 0:
+          break
+        vinbuf = vinyl.readframes(len(buf) // wavcns)
+        if len(vinbuf) < len(buf):
+          vinyl.rewind()
           vinbuf = vinyl.readframes(len(buf) // wavcns)
-          if len(vinbuf) < len(buf):
-            vinyl.rewind()
-            vinbuf = vinyl.readframes(len(buf) // wavcns)
-  
-          a = np.frombuffer(buf, dtype='i2') * wet
-          b = np.frombuffer(vinbuf, dtype='i2') * noise
-  
-          mod = moving_average(a + b, n=7)
-  
-          out.writeframes(mod.astype('i2').tobytes())
-        pydub.AudioSegment.from_wav(of).export(of + '.mp3', format='mp3')
+        a = np.frombuffer(buf, dtype='i2') * wet
+        b = np.frombuffer(vinbuf, dtype='i2') * noise
+        mod = moving_average(a + b, n=7)
+        out.writeframes(mod.astype('i2').tobytes())
 
-  return of + '.mp3'
+    pydub.AudioSegment.from_wav(temp).export(of, format='mp3')
+  print('Generated', of)
+  return of
   
 
 def main():
+  """A quick way to test the program without bringing up any servers"""
   if len(sys.argv) != 2:
     print('Expected a youtube url argument: e.g. ./doomify "http://..."')
-    exit()
-
-  sl = sys.argv[1]
-  of = cached_doom(sl)
-  os.system('open \"%s\"' % of)
+    exit(1)
+  else:
+    os.system('open \"%s\"' % cached_doom(sys.argv[1]))
         
 if __name__ == '__main__':
   main()
