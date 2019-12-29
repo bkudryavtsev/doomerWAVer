@@ -19,11 +19,13 @@ def application(env, start_response):
     if not yturl:
       print('yturl missing')
       start_response('400 BAD REQUEST', [('Content-Type','text/plain')])
+      return[b'']
+    else:
+      yturl = yturl[0].decode('utf-8')
 
 
     try:
-      sl = download(yturl[0].decode('utf-8'))
-      of = doomify(sl)
+      of = cached_doom(yturl)
       doom = open(of, 'rb')
       resp = doom.read()
       start_response('200 OK', [('Content-Type','audio/x-wav'), ('Content-Disposition','attachment'), ('Content-Length', str(len(resp)))])
@@ -51,6 +53,21 @@ import youtube_dl
 import sys
 import os
 
+cache = {}
+def cached_doom(yturl):
+  vid = yturl[yturl.find('=') + 1:]
+  print(vid)
+  cached = cache.get(vid, None)
+  if cached:
+    return cached
+  else:
+    sl = download(yturl)
+    of = doomify(sl)
+    os.unlink(sl)
+    cache[vid] = of
+    return of
+  
+
 def printinfo(name, wav):
   print(name)
   print('Compression:', wav.getcompname())
@@ -76,6 +93,11 @@ def download(link):
       filename = ytdl.prepare_filename(info)
       return filename[:filename.find('.', -6)] + '.wav'
 
+def moving_average(a, n=3) :
+  ret = np.cumsum(a, dtype=float)
+  ret[n:] = ret[n:] - ret[:-n]
+  return ret[n - 1:] / n
+
 def doomify(sf):
   noise = 0.2
   wet = 1 - noise
@@ -100,8 +122,8 @@ def doomify(sf):
         printinfo('Vinyl Sample', vinyl)
         printinfo('Output Audio', out)
   
-        vinbuf = vinyl.readframes(out.getframerate() * 3 // 2)
-        out.writeframes(vinbuf)
+        vinbuf = np.frombuffer(vinyl.readframes(out.getframerate() * 3 // 2), dtype='i2') * noise
+        out.writeframes(vinbuf.astype('i2').tobytes())
         wavfs = wav.getsampwidth() * wav.getnchannels()
   
         while True:
@@ -116,7 +138,7 @@ def doomify(sf):
           a = np.frombuffer(buf, dtype='i2') * wet
           b = np.frombuffer(vinbuf, dtype='i2') * noise
   
-          mod = a + b
+          mod = moving_average(a + b, n=9)
   
           out.writeframes(mod.astype('i2').tobytes())
         pydub.AudioSegment.from_wav(of).export(of + '.mp3', format='mp3')
@@ -130,8 +152,7 @@ def main():
     exit()
 
   sl = sys.argv[1]
-  sf = download(sl)
-  of = doomify(sf)
+  of = cached_doom(sl)
   os.system('open \"%s\"' % of)
         
 if __name__ == '__main__':
