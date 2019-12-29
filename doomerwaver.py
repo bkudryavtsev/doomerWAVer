@@ -28,7 +28,7 @@ def application(env, start_response):
       of = cached_doom(yturl)
       doom = open(of, 'rb')
       resp = doom.read()
-      start_response('200 OK', [('Content-Type','audio/x-wav'), ('Content-Disposition','attachment'), ('Content-Length', str(len(resp)))])
+      start_response('200 OK', [('Content-Type','audio/x-wav'), ('Content-Disposition','attachment; filename=' + of), ('Content-Length', str(len(resp)))])
       return [resp]
     except Exception as e:
       print(e)
@@ -99,7 +99,7 @@ def moving_average(a, n=3) :
   return ret[n - 1:] / n
 
 def doomify(sf):
-  noise = 0.2
+  noise = 0.15
   wet = 1 - noise
   speed = 0.74
 
@@ -124,21 +124,22 @@ def doomify(sf):
   
         vinbuf = np.frombuffer(vinyl.readframes(out.getframerate() * 3 // 2), dtype='i2') * noise
         out.writeframes(vinbuf.astype('i2').tobytes())
-        wavfs = wav.getsampwidth() * wav.getnchannels()
+
+        wavcns = wav.getnchannels()
   
         while True:
           buf = wav.readframes(1024)
           if len(buf) <= 0:
             break
-          vinbuf = vinyl.readframes(len(buf) // wavfs)
-          if len(vinbuf) < len(buf):
+          a = moving_average(np.frombuffer(buf, dtype='i2') * wet, n=9)
+          vinbuf = vinyl.readframes(len(a) // wavcns)
+          if len(vinbuf) < len(a) * 2:
             vinyl.rewind()
-            vinbuf = vinyl.readframes(len(buf) // wavfs)
+            vinbuf = vinyl.readframes(len(a) // wavcns)
   
-          a = np.frombuffer(buf, dtype='i2') * wet
           b = np.frombuffer(vinbuf, dtype='i2') * noise
   
-          mod = moving_average(a + b, n=9)
+          mod = a + b
   
           out.writeframes(mod.astype('i2').tobytes())
         pydub.AudioSegment.from_wav(of).export(of + '.mp3', format='mp3')
