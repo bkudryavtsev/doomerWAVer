@@ -34,7 +34,7 @@ def application(env, start_response):
       doom = open(of, 'rb')
       resp = doom.read()
       start_response('200 OK', [
-        ('Content-Type','audio/x-wav'), 
+        ('Content-Type','audio/mpeg'), 
         ('Content-Disposition','attachment; filename=' + unidecode(of)), 
         ('Content-Length', str(len(resp))), 
         ('Access-Control-Allow-Origin', '*')
