@@ -10,6 +10,7 @@ import os
 from unidecode import unidecode
 
 
+GET_dir = 'client/dist'
 def application(env, start_response):
   """Main wsgi entry point"""
 
@@ -48,15 +49,35 @@ def application(env, start_response):
     elif method == 'GET':
       # Fetching the frontend
       url = env.get('PATH_INFO', '/')
+      url = url.lstrip('/')
+      if url == '':
+        url = 'index.html'
 
-      if url in ['index.html', '/', '']:
-        with open('index.html', 'rb') as i:
+      path = os.path.join(GET_dir, url)
+      print('requesting:', url, 'Returning:',  path)
+
+
+      try:
+        with open(path, 'rb') as i:
           data = i.read()
+
+          filetype = 'text/plain'
+          if url.endswith('.html'):
+            filetype = 'text/html'
+          elif url.endswith('.js'):
+            filetype = 'text/javascript'
+          elif url.endswith('.css'):
+            filetype = 'text/css'
+          elif url.endswith('.jpeg') or url.endswith('.jpg'):
+            filetype = 'image/jpeg'
+          elif url.endswith('.png'):
+            filetype = 'image/png'
+
           start_response('200 OK', [
           ('Access-Control-Allow-Origin', '*'),
-          ('Content-Type','text/html')])
+          ('Content-Type',filetype)])
           return [data]
-      else:
+      except Exception as e:
         start_response('404 Not Found', [
         ('Access-Control-Allow-Origin', '*'),
         ('Content-Type','text/html')])
