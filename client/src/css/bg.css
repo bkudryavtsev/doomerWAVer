@@ -59,8 +59,8 @@
   background: linear-gradient(to bottom, transparent 50%, rgba(0, 0, 0, 0.5) 51%);
   background-size: 100% 4px;
   will-change: background, background-size;
-  -webkit-animation: scanlines .2s linear infinite;
-          animation: scanlines .2s linear infinite;
+  /* -webkit-animation: scanlines .2s linear infinite;
+          animation: scanlines .2s linear infinite; */
 }
 
 /* Animations */
