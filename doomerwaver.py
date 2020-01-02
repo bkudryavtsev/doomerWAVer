@@ -99,7 +99,7 @@ def application(env, start_response):
   return [b"Something went incredibly wrong"]
 
 cache = {}
-def cached_doom(yturl: str) -> str:
+def cached_doom(yturl: str, speed=None, noise=None) -> str:
   """Check if video has been processed, if yes, return, else process
   Args:
     yturl (str): url of the youtube video
@@ -113,7 +113,7 @@ def cached_doom(yturl: str) -> str:
     return cached
   else:
     sl = download(yturl)
-    of = doomify(sl)
+    of = doomify(sl, speed=speed, noise=noise)
     os.unlink(sl)
     cache[vid] = of
     return of
@@ -166,7 +166,7 @@ def moving_average(a, n=3):
   ret[n:] = ret[n:] - ret[:-n]
   return ret[n - 1:] / n
 
-def doomify(sf: str, verbose=False) -> str:
+def doomify(sf: str, verbose=False, noise=None, speed=None) -> str:
   """Takes a wave file and returns a doomified mp3
   Args:
     sf (str): Source file name
@@ -174,10 +174,10 @@ def doomify(sf: str, verbose=False) -> str:
   Returns:
     str: Output file name (mp3)
   """
-  noise = 0.1
-  wet = 1 - noise
-  speed = 0.74
 
+  speed = speed or 0.74
+  noise = noise or 0.1
+  wet = 1 - noise
   temp = 'doomer_' + sf
   of = 'doomer_%s.mp3' % sf[:-4] 
   with wave.open(sf, 'rb') as wav:
@@ -224,8 +224,9 @@ def doomify(sf: str, verbose=False) -> str:
 
 def main():
   """A quick way to test the program without bringing up any servers"""
-  if len(sys.argv) != 2: sys.exit('Expected a youtube url argument: e.g. ./doomify "http://..."')
-  os.system('open \"%s\"' % cached_doom(sys.argv[1]))
+  if len(sys.argv) < 2: sys.exit('Expected a youtube url argument: e.g. ./doomify "http://..."')
+  speed = float(sys.argv[2]) if len(sys.argv) >= 3 else None
+  print(cached_doom(sys.argv[1], speed=speed))  
         
 if __name__ == '__main__':
   main()
