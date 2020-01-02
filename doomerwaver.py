@@ -24,7 +24,9 @@ def application(env, start_response):
 
       yturl = d.get(b'yturl', None)
       if not yturl:
-        start_response('400 BAD REQUEST', [('Content-Type','text/plain')])
+        start_response('400 BAD REQUEST', [
+        ('Access-Control-Allow-Origin', '*'),
+        ('Content-Type','text/plain')])
         return [b'POST request must have a yturl paramter containing the Youtube url']
       else:
         yturl = yturl[0].decode('utf-8')
@@ -37,6 +39,7 @@ def application(env, start_response):
         ('Content-Type','audio/mpeg'), 
         ('Content-Disposition','attachment; filename=' + unidecode(of)), 
         ('Content-Length', str(len(resp))), 
+        ('Access-Control-Expose-Headers', '*'),
         ('Access-Control-Allow-Origin', '*')
         ]
       )
@@ -49,18 +52,26 @@ def application(env, start_response):
       if url in ['index.html', '/', '']:
         with open('index.html', 'rb') as i:
           data = i.read()
-          start_response('200 OK', [('Content-Type','text/html')])
+          start_response('200 OK', [
+          ('Access-Control-Allow-Origin', '*'),
+          ('Content-Type','text/html')])
           return [data]
       else:
-        start_response('404 Not Found', [('Content-Type','text/html')])
+        start_response('404 Not Found', [
+        ('Access-Control-Allow-Origin', '*'),
+        ('Content-Type','text/html')])
         return [b'404. That file does not exist here']
 
     else:
-      start_response('405 Method Not Allowed', [('Content-Type','text/plain')])
+      start_response('405 Method Not Allowed', [
+      ('Access-Control-Allow-Origin', '*'),
+      ('Content-Type','text/plain')])
       return [b'405. Request type not supported']
     
   except Exception as e:
-    start_response('500 Internal Server Error', [('Content-Type','text/plain')])
+    start_response('500 Internal Server Error', [
+    ('Access-Control-Allow-Origin', '*'),
+    ('Content-Type','text/plain')])
     print(e)
     return [str(e).encode('utf-8')]
 
