@@ -32,5 +32,11 @@ body {
 
 .doomer-img-container img {
   filter: brightness(30%);
-  width: 350px;
+  width: 250px;
+}
+
+@media only screen and (min-width: 768px) {
+  .doomer-img-container img {
+    width: 350px;
+  }
 }
