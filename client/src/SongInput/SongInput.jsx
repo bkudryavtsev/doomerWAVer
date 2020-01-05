@@ -35,7 +35,7 @@ const SongInput = props => {
     setGenerating(true);
     
     axios({
-      url: 'http://aws.boristeo.com',
+      url: '',
       method: 'POST',
       responseType: 'blob',
       data: `yturl=${ytUrl}`
