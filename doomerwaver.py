@@ -35,7 +35,6 @@ def application(env, start_response):
       # Request good. Attempt to process video
       of = cached_doom(yturl)
       doom = open(of, 'rb')
-      resp = doom.read()
       start_response('200 OK', [
         ('Content-Type','audio/mpeg'), 
         ('Content-Disposition','attachment; filename=' + unidecode(of)), 
@@ -44,7 +43,9 @@ def application(env, start_response):
         ('Access-Control-Allow-Origin', '*')
         ]
       )
-      return [resp]
+      while doom:
+        resp = doom.read(4096)
+        yield [resp]
       
     elif method == 'GET':
       # Fetching the frontend
