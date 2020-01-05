@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!doomer/bin/python3
 
 from cgi import parse_qs
 import wave
@@ -10,7 +10,8 @@ import os
 from unidecode import unidecode
 
 
-GET_dir = 'client/dist'
+GET_dir = ''
+#GET_dir = 'client/dist'
 def application(env, start_response):
   """Main wsgi entry point"""
 
@@ -36,16 +37,19 @@ def application(env, start_response):
       of = cached_doom(yturl)
       doom = open(of, 'rb')
       start_response('200 OK', [
-        ('Content-Type','audio/mpeg'), 
-        ('Content-Disposition','attachment; filename=' + unidecode(of)), 
-        ('Content-Length', str(len(resp))), 
+        ('Content-Type','audio/m4a'), 
+#        ('Content-Disposition','attachment; filename=' + unidecode(of)), 
+        #('Content-Length', str(len(resp))), 
         ('Access-Control-Expose-Headers', '*'),
         ('Access-Control-Allow-Origin', '*')
         ]
       )
+      #env['wsgi.file_wrapper'](doom, 32768)
       while doom:
         resp = doom.read(4096)
-        yield [resp]
+        if not resp:
+          break
+        yield resp
       
     elif method == 'GET':
       # Fetching the frontend
@@ -56,7 +60,6 @@ def application(env, start_response):
 
       path = os.path.join(GET_dir, url)
       print('requesting:', url, 'Returning:',  path)
-
 
       try:
         with open(path, 'rb') as i:
@@ -77,11 +80,13 @@ def application(env, start_response):
           start_response('200 OK', [
           ('Access-Control-Allow-Origin', '*'),
           ('Content-Type',filetype)])
-          return [data]
+
+          yield data
       except Exception as e:
         start_response('404 Not Found', [
         ('Access-Control-Allow-Origin', '*'),
         ('Content-Type','text/html')])
+        print(e)
         return [b'404. That file does not exist here']
 
     else:
@@ -180,7 +185,7 @@ def doomify(sf: str, verbose=False, noise=None, speed=None) -> str:
   noise = noise or 0.1
   wet = 1 - noise
   temp = 'doomer_' + sf
-  of = 'doomer_%s.mp3' % sf[:-4] 
+  of = 'doomer_%s.m4a' % sf[:-4] 
   with wave.open(sf, 'rb') as wav:
     inchannels = wav.getnchannels()
     if inchannels == 2:
@@ -217,7 +222,7 @@ def doomify(sf: str, verbose=False, noise=None, speed=None) -> str:
         mod = moving_average(a + b, n=7)
         out.writeframes(mod.astype('i2').tobytes())
 
-    pydub.AudioSegment.from_wav(temp).export(of, format='mp3')
+    pydub.AudioSegment.from_wav(temp).export(of, format='mov')
     os.unlink(temp)
   print('Generated', of)
   return of
