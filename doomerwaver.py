@@ -43,7 +43,7 @@ def application(env, start_response):
 
   def fail(status, msg=''):
     start_response(smsg(status), err_headers)
-    return [b'%d %s\r\n%s' % (status.value, status.description.encode('utf-8'), msg.encode('utf-8'))]
+    return ('%d %s\r\n%s' % (status.value, status.description, msg)).encode('utf-8')
   # END CONSTANTS
 
 
@@ -55,14 +55,17 @@ def application(env, start_response):
       args = parse_qs(env['wsgi.input'].read(request_body_size))
       yturl = args.get(b'yturl', None)
       if not yturl:
-        fail(HTTPStatus.BAD_REQUEST, 'POST request must have a yturl paramter containing the Youtube url')
+        yield fail(HTTPStatus.BAD_REQUEST, 'POST request must have a yturl paramter containing the Youtube url')
+        return
 
       # Request good. Attempt to find video
       video = find_video(yturl[0].decode('utf-8'))
       if not video:
-        fail(HTTPStatus.BAD_REQUEST, 'Youtube link was not valid')
+        yield fail(HTTPStatus.BAD_REQUEST, 'Youtube link was not valid')
+        return
       if video.length > MAX_VID_LEN_S:
-        fail(HTTPStatus.BAD_REQUEST, 'Videos over %d seconds long are not currently supported' % MAX_VID_LEN_S)
+        yield fail(HTTPStatus.BAD_REQUEST, 'Videos over %d seconds long are not currently supported' % MAX_VID_LEN_S)
+        return
 
       # Video found and valid. Getting audio stream and forwarding to you
       astream = video.getbestaudio(preftype='webm')
@@ -84,17 +87,21 @@ def application(env, start_response):
             yield chunk
         return
       except FileNotFoundError:
-        fail(HTTPStatus.NOT_FOUND)
+        yield fail(HTTPStatus.NOT_FOUND)
+        return
 
 
     else:
-      fail(HTTPStatus.METHOD_NOT_ALLOWED)
+      yield fail(HTTPStatus.METHOD_NOT_ALLOWED)
+      return
     
   except Exception as e:
     print(e)
-    fail(HTTPStatus.INTERNAL_SERVER_ERROR, str(e))
+    yield fail(HTTPStatus.INTERNAL_SERVER_ERROR, str(e))
+    return
 
-  fail(HTTPStatus.INTERNAL_SERVER_ERROR, 'Something went incredibly wrong')
+  yield fail(HTTPStatus.INTERNAL_SERVER_ERROR, 'Something went incredibly wrong')
+  return
 
 
 def find_video(yturl: str):
