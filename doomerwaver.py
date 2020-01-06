@@ -2,7 +2,6 @@
 
 from cgi import parse_qs
 import numpy as np
-import youtube_dl
 import sys
 import os
 import pafy
@@ -119,6 +118,11 @@ def find_video(yturl: str):
   except:
     return None
 
+def moving_average(a, n=3):
+  ret = np.cumsum(a, dtype=float)
+  ret[n:] = ret[n:] - ret[:-n]
+  return ret[n - 1:] / n
+
 def stream_doom(yturl: str, speed=None, noise=None):
   in_file = av.open(yturl, options={'rtsp_transport': 'tcp'})
   in_stream = in_file.streams.audio[0]
@@ -177,39 +181,6 @@ def stream_doom(yturl: str, speed=None, noise=None):
 
   in_file.close()
 
-
-def download(link: str):
-  """Download the audio from the youtube url and convert to mp3
-  Args:
-    link (str): The url of the youtube video
-  """
-  print("Downloading", link)
-  maxfilesize = 20000000 # 20MB
-  opts = {
-    'format': 'bestaudio/best',
-    'forcefilename': True,
-    'quiet': True,
-    'noplaylist': True,
-    'max_downloads': 1,
-    'max_filesize': maxfilesize,
-    'postprocessors': [{
-      'key': 'FFmpegExtractAudio',
-      'preferredcodec': 'wav',
-      'preferredquality': '192',
-    }]
-  }
-  with youtube_dl.YoutubeDL(opts) as ytdl:
-    info = ytdl.extract_info(link, download=False)
-    if info['filesize'] > maxfilesize:
-      raise Exception('Sorry brother, I can\'t handle a file this size') 
-    ytdl.download([link])
-    filename = ytdl.prepare_filename(info)
-    return filename[:filename.find('.', -6)] + '.wav'
-
-def moving_average(a, n=3):
-  ret = np.cumsum(a, dtype=float)
-  ret[n:] = ret[n:] - ret[:-n]
-  return ret[n - 1:] / n
 
 
 def main():
