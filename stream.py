@@ -2,7 +2,6 @@ import pafy
 import sys
 from urllib3 import request
 import av
-import wave
 
 if len(sys.argv) < 2:
   print('Expected url')
@@ -11,33 +10,37 @@ if len(sys.argv) < 2:
 url = sys.argv[1]
 video = pafy.new(url)
 astream = video.getbestaudio(preftype="webm")
-
 print('Found audio stream', astream)
-container = av.open(astream.url, format='webm', options={'rtsp_transport': 'tcp'})
-stream = container.streams.audio[0]
 
-def decode_iter():
-  for pi, packet in enumerate(container.demux(stream)):
-    for fi, frame in enumerate(packet.decode()):
-      yield pi, fi, frame
+in_file = av.open(astream.url, format='webm', options={'rtsp_transport': 'tcp'})
+in_stream = in_file.streams.audio[0]
+in_codec = in_stream.codec_context
+
+out_codec = av.CodecContext.create('mp3', 'w')
+out_codec.rate = in_codec.rate 
+out_codec.channels = in_codec.channels 
+out_codec.format = in_codec.format 
+
 
 resampler = av.AudioResampler(
     format=av.AudioFormat('s16').packed,
-    layout='stereo',
-    rate=astream.rawbitrate // 3,
+    layout=in_codec.layout,
+    rate=in_codec.rate * 1.3,
 )
 
-with wave.open('output.wav', 'wb') as out:
-  pi, fi, frame = next(decode_iter())
-  print(dir(frame))
-  print(frame.layout)
-  print(frame.format)
-  #out.setparams(wav.getparams())
-  out.setnchannels(2)
-  out.setsampwidth(2)
-  out.setframerate(astream.rawbitrate // 4)
+with open('output.mp3', 'wb') as out:
+  for packet in in_file.demux(in_stream):
+    for frame in packet.decode():
+      frame.pts = None
+      array = resampler.resample(frame).to_ndarray()
+      newframe = av.audio.frame.AudioFrame.from_ndarray(array, format='s16', layout='stereo')
+      newframe.rate = in_codec.rate
+      for p in out_codec.encode(newframe):
+        out.write(p.to_bytes())
+        #out_file.mux(packet)
 
+  for p in out_codec.encode(newframe):
+    out.write(p.to_bytes())
 
-  for pi, fi, frame in decode_iter():
-    frame.pts = None
-    out.writeframes(resampler.resample(frame).to_ndarray().tobytes())
+  in_file.close()
+
