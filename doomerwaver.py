@@ -8,107 +8,93 @@ import pafy
 import wave
 import av
 from unidecode import unidecode
+from http import HTTPStatus
+import mimetypes
 
 
-#GET_dir = ''
-GET_dir = 'client/dist'
+
 def application(env, start_response):
   """Main wsgi entry point"""
 
-  method = env['REQUEST_METHOD']
+  # CONSTANTS
+  GET_dir = 'client/dist'
+  GET_chunk_size = 4096
+
+  MAX_VID_LEN_S = 60 * 30
+
+  common_headers = [ 
+    ('Access-Control-Allow-Origin', '*'), 
+    ('Access-Control-Expose-Headers', '*')
+  ]
+  err_headers = common_headers + [
+    ('Content-Type','text/plain')
+  ] 
+  def data_headers(title):
+    return common_headers + [
+      ('Content-Type','audio/mpeg'), 
+      ('Content-Disposition','attachment; filename=doomer_%s.mp3' % unidecode(title))
+    ]
+  def static_headers(path):
+    filetype = mimetypes.guess_type(path)[0]
+    return common_headers + [('Content-Type', filetype)]
+
+  def smsg(status):
+    return '%d %s' % (status.value, status.phrase)
+
+  def fail(status, msg=''):
+    start_response(smsg(status), err_headers)
+    return [b'%d %s\r\n%s' % (status.value, status.description.encode('utf-8'), msg.encode('utf-8'))]
+  # END CONSTANTS
+
 
   try:
+    method = env['REQUEST_METHOD']  # Should never fail according to PEP
     if method == 'POST':
-      # Process file
+      # Extracting the necessary POST argument(s) 
       request_body_size = int(env.get('CONTENT_LENGTH', 0))
-      request_body = env['wsgi.input'].read(request_body_size)
-      d = parse_qs(request_body)
-
-      yturl = d.get(b'yturl', None)
+      args = parse_qs(env['wsgi.input'].read(request_body_size))
+      yturl = args.get(b'yturl', None)
       if not yturl:
-        start_response('400 BAD REQUEST', [
-        ('Access-Control-Allow-Origin', '*'),
-        ('Content-Type','text/plain')])
-        return [b'POST request must have a yturl paramter containing the Youtube url']
-      else:
-        yturl = yturl[0].decode('utf-8')
+        fail(HTTPStatus.BAD_REQUEST, 'POST request must have a yturl paramter containing the Youtube url')
 
-      # Request good. Attempt to process video
-      video = find_video(yturl)
-      if video is None:
-        start_response('400 BAD REQUEST', [
-        ('Access-Control-Allow-Origin', '*'),
-        ('Content-Type','text/plain')])
-        return [b'Youtube link was not valid']
+      # Request good. Attempt to find video
+      video = find_video(yturl[0].decode('utf-8'))
+      if not video:
+        fail(HTTPStatus.BAD_REQUEST, 'Youtube link was not valid')
+      if video.length > MAX_VID_LEN_S:
+        fail(HTTPStatus.BAD_REQUEST, 'Videos over %d seconds long are not currently supported' % MAX_VID_LEN_S)
 
-      astream = video.getbestaudio(preftype="webm")
-      print('Found audio stream', astream)
-
-      stream = stream_doom(astream.url)
-      start_response('200 OK', [
-        ('Content-Type','audio/mpeg'), 
-        ('Content-Disposition','attachment; filename=doomer_%s.mp3' % unidecode(video.title)), 
-        #('Content-Length', str(len(resp))), 
-        ('Access-Control-Expose-Headers', '*'),
-        ('Access-Control-Allow-Origin', '*')
-        ]
-      )
-      #env['wsgi.file_wrapper'](doom, 32768)
-      for chunk in stream:
-        yield chunk
+      # Video found and valid. Getting audio stream and forwarding to you
+      astream = video.getbestaudio(preftype='webm')
+      start_response(smsg(HTTPStatus.OK), data_headers(video.title))
+      for frame in stream_doom(astream.url):
+        yield frame
+      return
       
+
     elif method == 'GET':
-      # Fetching the frontend
-      url = env.get('PATH_INFO', '/')
-      url = url.lstrip('/')
-      if url == '':
-        url = 'index.html'
-
+      url = env.get('PATH_INFO', '/').lstrip('/')
+      url = url if len(url) > 0 else 'index.html'
       path = os.path.join(GET_dir, url)
-      print('requesting:', url, 'Returning:',  path)
-
+      # TODO: Make sure there can't be any / that sneak past forming absolute paths
       try:
-        with open(path, 'rb') as i:
-          data = i.read()
+        with open(path, 'rb') as f:
+          start_response(smsg(HTTPStatus.OK), static_headers(path))
+          for chunk in iter(lambda: f.read(GET_chunk_size), b''):
+            yield chunk
+        return
+      except FileNotFoundError:
+        fail(HTTPStatus.NOT_FOUND)
 
-          filetype = 'text/plain'
-          if url.endswith('.html'):
-            filetype = 'text/html'
-          elif url.endswith('.js'):
-            filetype = 'text/javascript'
-          elif url.endswith('.css'):
-            filetype = 'text/css'
-          elif url.endswith('.jpeg') or url.endswith('.jpg'):
-            filetype = 'image/jpeg'
-          elif url.endswith('.png'):
-            filetype = 'image/png'
-
-          start_response('200 OK', [
-          ('Access-Control-Allow-Origin', '*'),
-          ('Content-Type',filetype)])
-
-          yield data
-      except Exception as e:
-        start_response('404 Not Found', [
-        ('Access-Control-Allow-Origin', '*'),
-        ('Content-Type','text/html')])
-        print(e)
-        return [b'404. That file does not exist here']
 
     else:
-      start_response('405 Method Not Allowed', [
-      ('Access-Control-Allow-Origin', '*'),
-      ('Content-Type','text/plain')])
-      return [b'405. Request type not supported']
+      fail(HTTPStatus.METHOD_NOT_ALLOWED)
     
   except Exception as e:
-    start_response('500 Internal Server Error', [
-    ('Access-Control-Allow-Origin', '*'),
-    ('Content-Type','text/plain')])
     print(e)
-    return [str(e).encode('utf-8')]
+    fail(HTTPStatus.INTERNAL_SERVER_ERROR, str(e))
 
-  return [b"Something went incredibly wrong"]
+  fail(HTTPStatus.INTERNAL_SERVER_ERROR, 'Something went incredibly wrong')
 
 
 def find_video(yturl: str):
@@ -118,12 +104,10 @@ def find_video(yturl: str):
   except:
     return None
 
-def moving_average(a, n=3):
-  ret = np.cumsum(a, dtype=float)
-  ret[n:] = ret[n:] - ret[:-n]
-  return ret[n - 1:] / n
 
 def stream_doom(yturl: str, speed=None, noise=None):
+  """ Returns a generator of doomified mp3 frames """
+
   in_file = av.open(yturl, options={'rtsp_transport': 'tcp'})
   in_stream = in_file.streams.audio[0]
   in_codec = in_stream.codec_context
@@ -132,7 +116,6 @@ def stream_doom(yturl: str, speed=None, noise=None):
   out_codec.rate = in_codec.rate 
   out_codec.channels = in_codec.channels 
   out_codec.format = in_codec.format 
-
 
   resampler = av.AudioResampler(
       format=av.AudioFormat('s16').packed,
@@ -145,10 +128,16 @@ def stream_doom(yturl: str, speed=None, noise=None):
   elif in_codec.channels == 1:
     nf = 'vinylmono.wav'
   else:
-    exit(1)
+    # TODO: Support 5.1 and other configs
+    raise Exception('Too many audio channels in stream')
 
   noise = noise or 0.1
   wet = 1 - noise
+
+  def moving_average(a, n=3):
+    ret = np.cumsum(a, dtype=float)
+    ret[n:] = ret[n:] - ret[:-n]
+    return ret[n - 1:] / n
 
   with wave.open(nf, 'rb') as vinyl:
     vinbuf = vinyl.readframes(int(out_codec.rate * 1.5))
