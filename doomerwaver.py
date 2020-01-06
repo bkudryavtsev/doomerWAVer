@@ -1,17 +1,18 @@
 #!doomer/bin/python3
 
 from cgi import parse_qs
-import wave
-import pydub
 import numpy as np
 import youtube_dl
 import sys
 import os
+import pafy
+import wave
+import av
 from unidecode import unidecode
 
 
-GET_dir = ''
-#GET_dir = 'client/dist'
+#GET_dir = ''
+GET_dir = 'client/dist'
 def application(env, start_response):
   """Main wsgi entry point"""
 
@@ -34,22 +35,28 @@ def application(env, start_response):
         yturl = yturl[0].decode('utf-8')
 
       # Request good. Attempt to process video
-      of = cached_doom(yturl)
-      doom = open(of, 'rb')
+      video = find_video(yturl)
+      if video is None:
+        start_response('400 BAD REQUEST', [
+        ('Access-Control-Allow-Origin', '*'),
+        ('Content-Type','text/plain')])
+        return [b'Youtube link was not valid']
+
+      astream = video.getbestaudio(preftype="webm")
+      print('Found audio stream', astream)
+
+      stream = stream_doom(astream.url)
       start_response('200 OK', [
-        ('Content-Type','audio/m4a'), 
-#        ('Content-Disposition','attachment; filename=' + unidecode(of)), 
+        ('Content-Type','audio/mpeg'), 
+        ('Content-Disposition','attachment; filename=doomer_%s.mp3' % unidecode(video.title)), 
         #('Content-Length', str(len(resp))), 
         ('Access-Control-Expose-Headers', '*'),
         ('Access-Control-Allow-Origin', '*')
         ]
       )
       #env['wsgi.file_wrapper'](doom, 32768)
-      while doom:
-        resp = doom.read(4096)
-        if not resp:
-          break
-        yield resp
+      for chunk in stream:
+        yield chunk
       
     elif method == 'GET':
       # Fetching the frontend
@@ -104,40 +111,72 @@ def application(env, start_response):
 
   return [b"Something went incredibly wrong"]
 
-cache = {}
-def cached_doom(yturl: str, speed=None, noise=None) -> str:
-  """Check if video has been processed, if yes, return, else process
-  Args:
-    yturl (str): url of the youtube video
-  Returns:
-    str: the filename of the processed audio
-  """
-  vid = yturl[yturl.find('=') + 1:]
-  print(vid)
-  cached = cache.get(vid, None)
-  if cached:
-    return cached
-  else:
-    sl = download(yturl)
-    of = doomify(sl, speed=speed, noise=noise)
-    os.unlink(sl)
-    cache[vid] = of
-    return of
-  
 
-def printinfo(label: str, wav: wave.Wave_read, outfile=sys.stdout):
-  """Print info about a wav file for logging purposes
-  Args:
-    label (str): The human-readable name of the file being shown
-    wav (Wave_read): The open wave object
-    outfile (file, optional): The output stream for the info. Defaults to stdout
-  """
-  print(label, file=outfile)
-  print('Compression:', wav.getcompname(), file=outfile)
-  print('Framerate:', wav.getframerate(), file=outfile)
-  print('# Frames:', wav.getnframes(), file=outfile)
-  print('# Channels:', wav.getnchannels(), file=outfile)
-  print('Sample Width:', wav.getsampwidth(), file=outfile)
+def find_video(yturl: str):
+  try:
+    video = pafy.new(yturl)
+    return video
+  except:
+    return None
+
+def stream_doom(yturl: str, speed=None, noise=None):
+  in_file = av.open(yturl, options={'rtsp_transport': 'tcp'})
+  in_stream = in_file.streams.audio[0]
+  in_codec = in_stream.codec_context
+
+  out_codec = av.CodecContext.create('mp3', 'w')
+  out_codec.rate = in_codec.rate 
+  out_codec.channels = in_codec.channels 
+  out_codec.format = in_codec.format 
+
+
+  resampler = av.AudioResampler(
+      format=av.AudioFormat('s16').packed,
+      layout=in_codec.layout,
+      rate=in_codec.rate * 1.4 if speed is None else 1 / speed,
+  )
+
+  if in_codec.channels == 2:
+    nf = 'vinyl.wav'
+  elif in_codec.channels == 1:
+    nf = 'vinylmono.wav'
+  else:
+    exit(1)
+
+  noise = noise or 0.1
+  wet = 1 - noise
+
+  with wave.open(nf, 'rb') as vinyl:
+    vinbuf = vinyl.readframes(int(out_codec.rate * 1.5))
+    b = np.frombuffer(vinbuf, dtype='i2').reshape((1, -1))
+    newframe = av.audio.frame.AudioFrame.from_ndarray(b, format='s16', layout=in_codec.layout.name)
+    newframe.rate = out_codec.rate
+    for p in out_codec.encode(newframe):
+      yield p.to_bytes()
+
+    for packet in in_file.demux(in_stream):
+      for frame in packet.decode():
+        frame.pts = None
+        buf = resampler.resample(frame).to_ndarray()[0]
+        # reading in a frame of the vinyl
+        vinbuf = vinyl.readframes(len(buf) // in_codec.channels)
+        if len(vinbuf) < len(buf) * in_codec.channels:
+          vinyl.rewind()
+          vinbuf = vinyl.readframes(len(buf) // in_codec.channels)
+        a = buf * wet
+        b = np.frombuffer(vinbuf, dtype='i2') * noise
+        mod = moving_average(a + b, n=7).astype('i2').reshape((1, -1))
+        
+        newframe = av.audio.frame.AudioFrame.from_ndarray(mod, format='s16', layout=in_codec.layout.name)
+        newframe.rate = out_codec.rate
+        for p in out_codec.encode(newframe):
+          yield p.to_bytes()
+
+    for p in out_codec.encode(newframe):
+      yield p.to_bytes()
+
+  in_file.close()
+
 
 def download(link: str):
   """Download the audio from the youtube url and convert to mp3
@@ -172,67 +211,18 @@ def moving_average(a, n=3):
   ret[n:] = ret[n:] - ret[:-n]
   return ret[n - 1:] / n
 
-def doomify(sf: str, verbose=False, noise=None, speed=None) -> str:
-  """Takes a wave file and returns a doomified mp3
-  Args:
-    sf (str): Source file name
-    verbose (bool, optional): print file info
-  Returns:
-    str: Output file name (mp3)
-  """
-
-  speed = speed or 0.74
-  noise = noise or 0.1
-  wet = 1 - noise
-  temp = 'doomer_' + sf
-  of = 'doomer_%s.m4a' % sf[:-4] 
-  with wave.open(sf, 'rb') as wav:
-    inchannels = wav.getnchannels()
-    if inchannels == 2:
-      nf = 'vinyl.wav'
-    elif inchannels == 1:
-      nf = 'vinylmono.wav'
-    else:
-      exit(1)
-
-    with wave.open(nf, 'rb') as vinyl, wave.open(temp, 'wb') as out:
-      out.setparams(wav.getparams())
-      out.setframerate(wav.getframerate() * speed)
-
-      if verbose:
-        printinfo('Input Audio', wav)
-        printinfo('Vinyl Sample', vinyl)
-        printinfo('Output Audio', out)
-
-      vinbuf = np.frombuffer(vinyl.readframes(out.getframerate() * 3 // 2), dtype='i2') * noise
-      out.writeframes(vinbuf.astype('i2').tobytes())
-
-      wavcns = wav.getnchannels() * 2
-
-      while True:
-        buf = wav.readframes(1024)
-        if len(buf) <= 0:
-          break
-        vinbuf = vinyl.readframes(len(buf) // wavcns)
-        if len(vinbuf) < len(buf):
-          vinyl.rewind()
-          vinbuf = vinyl.readframes(len(buf) // wavcns)
-        a = np.frombuffer(buf, dtype='i2') * wet
-        b = np.frombuffer(vinbuf, dtype='i2') * noise
-        mod = moving_average(a + b, n=7)
-        out.writeframes(mod.astype('i2').tobytes())
-
-    pydub.AudioSegment.from_wav(temp).export(of, format='mov')
-    os.unlink(temp)
-  print('Generated', of)
-  return of
-  
 
 def main():
   """A quick way to test the program without bringing up any servers"""
   if len(sys.argv) < 2: sys.exit('Expected a youtube url argument: e.g. ./doomify "http://..."')
   speed = float(sys.argv[2]) if len(sys.argv) >= 3 else None
-  print(cached_doom(sys.argv[1], speed=speed))  
+  video = find_video(sys.argv[1])
+  astream = video.getbestaudio(preftype="webm")
+  print('Found audio stream', astream)
+
+  with open('output.mp3', 'wb') as out:
+    for chunk in stream_doom(astream.url, speed=speed):
+      out.write(chunk)
         
 if __name__ == '__main__':
   main()
