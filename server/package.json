@@ -1,0 +1,17 @@
+{
+  "name": "doomerwaver-client",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "nodemon server.js"
+  },
+  "dependencies": {
+    "fluent-ffmpeg": "^2.1.2",
+    "ws": "^8.4.0",
+    "ytdl-core": "^4.10.0"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.15"
+  }
+}
