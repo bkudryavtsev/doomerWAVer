@@ -38,12 +38,49 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin: 18px 0;
+  margin-top: 18px;
 }
 
-.song-input-err {
+.audio-title {
+  width: 100%;
   color: white;
-  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audio-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.download-button {
+  box-sizing: border-box;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgb(100, 100, 100);
+  color: white;
+  padding: 13px;
+  margin: 6px;
+  outline: none;
+  font-size: 0.8rem;
+  transition: 50ms;
+  cursor: pointer;
+  box-shadow: 1px 1px 1px #333;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-decoration: none;
+}
+
+.download-button:hover {
+  background: rgba(70, 70, 70);
+  box-shadow: inset 2px 2px 1px #333; 
 }
 
 @media only screen and (min-width: 768px) {
